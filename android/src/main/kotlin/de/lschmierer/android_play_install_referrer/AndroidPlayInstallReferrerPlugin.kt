@@ -1,6 +1,7 @@
 package de.lschmierer.android_play_install_referrer
 
 import android.content.Context
+import android.util.Log
 import androidx.annotation.NonNull
 import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
@@ -12,7 +13,6 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlin.collections.ArrayList
 
-
 /** AndroidPlayInstallReferrerPlugin */
 class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var context: Context
@@ -21,11 +21,13 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
     private var referrerClient: InstallReferrerClient? = null
     private var referrerDetails: ReferrerDetails? = null
     private var referrerError: Pair<String, String>? = null
+    private var retryCount = 0
+    private val maxRetries = 3
 
     private val isInstallReferrerPending: Boolean
         @Synchronized
         get() {
-            return referrerClient != null && !isInstallReferrerResolved
+            return referrerClient != null && referrerClient?.isReady == true && !isInstallReferrerResolved
         }
 
     private val isInstallReferrerResolved: Boolean
@@ -38,7 +40,8 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
         this.context = flutterPluginBinding.applicationContext
         channel = MethodChannel(
             flutterPluginBinding.binaryMessenger,
-            "de.lschmierer.android_play_install_referrer")
+            "de.lschmierer.android_play_install_referrer"
+        )
         channel.setMethodCallHandler(this)
     }
 
@@ -48,13 +51,13 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
         } else {
             result.notImplemented()
         }
-
     }
 
     @Synchronized
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         pendingResults.clear()
         referrerClient?.endConnection()
+        referrerClient = null // Prevent reuse of invalid client
         channel.setMethodCallHandler(null)
     }
 
@@ -65,14 +68,23 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
         } else {
             pendingResults.add(result)
 
-            if(!isInstallReferrerPending) {
+            if (!isInstallReferrerPending) {
                 referrerClient = InstallReferrerClient.newBuilder(context).build()
                 referrerClient?.startConnection(object : InstallReferrerStateListener {
                     override fun onInstallReferrerSetupFinished(responseCode: Int) {
                         handleOnInstallReferrerSetupFinished(responseCode)
                     }
 
-                    override fun onInstallReferrerServiceDisconnected() {}
+                    override fun onInstallReferrerServiceDisconnected() {
+                        // Retry on service disconnection
+                        if (retryCount < maxRetries) {
+                            retryCount++
+                            referrerClient?.startConnection(this)
+                        } else {
+                            referrerError = Pair("SERVICE_DISCONNECTED", "Max retry attempts reached.")
+                            resolvePendingInstallReferrerResults()
+                        }
+                    }
                 })
             }
         }
@@ -80,16 +92,38 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
 
     @Synchronized
     private fun handleOnInstallReferrerSetupFinished(responseCode: Int) {
+        if (referrerClient?.isReady != true) {
+            referrerError = Pair("SERVICE_NOT_READY", "Referrer client connection not ready.")
+            resolvePendingInstallReferrerResults()
+            return
+        }
         when (responseCode) {
             InstallReferrerClient.InstallReferrerResponse.OK -> {
-                referrerClient?.let {
-                    referrerDetails = it.installReferrer
-                } ?: run {
-                    referrerError = Pair("BAD_STATE", "Result is null.")
+                try {
+                    referrerClient?.let {
+                        referrerDetails = it.installReferrer
+                    } ?: run {
+                        referrerError = Pair("BAD_STATE", "Result is null.")
+                    }
+                } catch (e: Exception) {
+                    referrerError = Pair("EXCEPTION", e.message ?: "Unknown exception occurred")
                 }
             }
             InstallReferrerClient.InstallReferrerResponse.SERVICE_DISCONNECTED -> {
-                referrerError = Pair("SERVICE_DISCONNECTED", "Play Store service is not connected now - potentially transient state.")
+                if (retryCount < maxRetries) {
+                    retryCount++
+                    referrerClient?.startConnection(object : InstallReferrerStateListener {
+                        override fun onInstallReferrerSetupFinished(responseCode: Int) {
+                            handleOnInstallReferrerSetupFinished(responseCode)
+                        }
+
+                        override fun onInstallReferrerServiceDisconnected() {
+                            // No further retries here
+                        }
+                    })
+                } else {
+                    referrerError = Pair("SERVICE_DISCONNECTED", "Max retry attempts reached.")
+                }
             }
             InstallReferrerClient.InstallReferrerResponse.SERVICE_UNAVAILABLE -> {
                 referrerError = Pair("SERVICE_UNAVAILABLE", "Connection couldn't be established.")
@@ -107,13 +141,21 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
                 referrerError = Pair("UNKNOWN_ERROR", "InstallReferrerClient returned unknown response code.")
             }
         }
-
         resolvePendingInstallReferrerResults()
         referrerClient?.endConnection()
+        referrerClient = null // Cleanup after use
     }
 
     @Synchronized
     private fun resolvePendingInstallReferrerResults() {
+        if (referrerClient?.isReady != true) {
+            pendingResults.forEach {
+                it.error("DEAD_OBJECT", "Install Referrer client object is invalid.", null)
+            }
+            pendingResults.clear()
+            return
+        }
+
         pendingResults.forEach {
             resolveInstallReferrerResult(it)
         }
