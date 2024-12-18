@@ -81,7 +81,8 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
                             retryCount++
                             referrerClient?.startConnection(this)
                         } else {
-                            referrerError = Pair("SERVICE_DISCONNECTED", "Max retry attempts reached.")
+                            referrerError =
+                                Pair("SERVICE_DISCONNECTED", "Max retry attempts reached.")
                             resolvePendingInstallReferrerResults()
                         }
                     }
@@ -109,6 +110,7 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
                     referrerError = Pair("EXCEPTION", e.message ?: "Unknown exception occurred")
                 }
             }
+
             InstallReferrerClient.InstallReferrerResponse.SERVICE_DISCONNECTED -> {
                 if (retryCount < maxRetries) {
                     retryCount++
@@ -125,20 +127,30 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
                     referrerError = Pair("SERVICE_DISCONNECTED", "Max retry attempts reached.")
                 }
             }
+
             InstallReferrerClient.InstallReferrerResponse.SERVICE_UNAVAILABLE -> {
                 referrerError = Pair("SERVICE_UNAVAILABLE", "Connection couldn't be established.")
             }
+
             InstallReferrerClient.InstallReferrerResponse.FEATURE_NOT_SUPPORTED -> {
-                referrerError = Pair("FEATURE_NOT_SUPPORTED", "API not available on the current Play Store app.")
+                referrerError = Pair(
+                    "FEATURE_NOT_SUPPORTED",
+                    "API not available on the current Play Store app."
+                )
             }
+
             InstallReferrerClient.InstallReferrerResponse.DEVELOPER_ERROR -> {
                 referrerError = Pair("DEVELOPER_ERROR", "General errors caused by incorrect usage.")
             }
+
             InstallReferrerClient.InstallReferrerResponse.PERMISSION_ERROR -> {
-                referrerError = Pair("PERMISSION_ERROR", "App is not allowed to bind to the Service.")
+                referrerError =
+                    Pair("PERMISSION_ERROR", "App is not allowed to bind to the Service.")
             }
+
             else -> {
-                referrerError = Pair("UNKNOWN_ERROR", "InstallReferrerClient returned unknown response code.")
+                referrerError =
+                    Pair("UNKNOWN_ERROR", "InstallReferrerClient returned unknown response code.")
             }
         }
         resolvePendingInstallReferrerResults()
