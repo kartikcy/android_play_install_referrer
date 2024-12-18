@@ -25,22 +25,19 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
     private val maxRetries = 3
 
     private val isInstallReferrerPending: Boolean
-        @Synchronized
-        get() {
+        @Synchronized get() {
             return referrerClient != null && referrerClient?.isReady == true && !isInstallReferrerResolved
         }
 
     private val isInstallReferrerResolved: Boolean
-        @Synchronized
-        get() {
+        @Synchronized get() {
             return referrerDetails != null || referrerError != null
         }
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         this.context = flutterPluginBinding.applicationContext
         channel = MethodChannel(
-            flutterPluginBinding.binaryMessenger,
-            "de.lschmierer.android_play_install_referrer"
+            flutterPluginBinding.binaryMessenger, "de.lschmierer.android_play_install_referrer"
         )
         channel.setMethodCallHandler(this)
     }
@@ -134,8 +131,7 @@ class AndroidPlayInstallReferrerPlugin : FlutterPlugin, MethodCallHandler {
 
             InstallReferrerClient.InstallReferrerResponse.FEATURE_NOT_SUPPORTED -> {
                 referrerError = Pair(
-                    "FEATURE_NOT_SUPPORTED",
-                    "API not available on the current Play Store app."
+                    "FEATURE_NOT_SUPPORTED", "API not available on the current Play Store app."
                 )
             }
 
